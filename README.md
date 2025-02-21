@@ -25,6 +25,12 @@ $ cd LinkFinder
 $ python setup.py install
 ```
 
+Pipx installation:
+
+```
+pipx install git+https://github.com/0xQRx/LinkFinder.git --include-deps
+```
+
 ## Dependencies
 
 LinkFinder depends on the `argparse` and `jsbeautifier` Python modules. These dependencies can all be installed using [pip](https://pypi.python.org/pypi/pip).
