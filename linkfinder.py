@@ -24,7 +24,7 @@ import ssl
 import xml.etree.ElementTree as ET
 from gzip import GzipFile
 from string import Template
-from urllib.parse import urlparse, urljoin  # For URL parsing and joining
+from urllib.parse import urlparse, urljoin
 
 try:
     from StringIO import StringIO
@@ -35,49 +35,37 @@ except ImportError:
 
 try:
     from urllib.request import Request, urlopen
+    from urllib.error import HTTPError, URLError
 except ImportError:
-    from urllib2 import Request, urlopen
+    from urllib2 import Request, urlopen, HTTPError, URLError
 
 # Regex used for extracting endpoints
 regex_str = r"""
-
-  (?:"|')                               # Start newline delimiter
-
+  (?:"|')                               # Start delimiter
   (
-    ((?:[a-zA-Z]{1,10}://|//)           # Match a scheme [a-Z]*1-10 or //
-    [^"'/]{1,}\.                        # Match a domainname (any character + dot)
-    [a-zA-Z]{2,}[^"']{0,})              # The domainextension and/or path
-
+    ((?:[a-zA-Z]{1,10}://|//)           # Match a scheme or //
+    [^"'/]{1,}\.                        # Match a domainname (any char + dot)
+    [a-zA-Z]{2,}[^"']{0,})              # Domain extension and/or path
     |
-
     ((?:/|\.\./|\./)                    # Start with /,../,./
-    [^"'><,;| *()(%%$^/\\\[\]]          # Next character can't be...
-    [^"'><,;|()]{1,})                   # Rest of the characters can't be
-
+    [^"'><,;| *()(%%$^/\\\[\]]          # Next character restrictions
+    [^"'><,;|()]{1,})                   # Rest of the characters restrictions
     |
-
     ([a-zA-Z0-9_\-/]{1,}/               # Relative endpoint with /
     [a-zA-Z0-9_\-/.]{1,}                # Resource name
-    \.(?:[a-zA-Z]{1,4}|action)          # Rest + extension (length 1-4 or action)
-    (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
-
+    \.(?:[a-zA-Z]{1,4}|action)          # Extension (1-4 letters or action)
+    (?:[\?|#][^"|']{0,}|))              # Optional ? or # with parameters
     |
-
-    ([a-zA-Z0-9_\-/]{1,}/               # REST API (no extension) with /
-    [a-zA-Z0-9_\-/]{3,}                 # Proper REST endpoints usually have 3+ chars
-    (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
-
+    ([a-zA-Z0-9_\-/]{1,}/               # REST API endpoint with /
+    [a-zA-Z0-9_\-/]{3,}                 # Endpoint (usually 3+ chars)
+    (?:[\?|#][^"|']{0,}|))              # Optional ? or # with parameters
     |
-
-    ([a-zA-Z0-9_\-]{1,}                 # filename
+    ([a-zA-Z0-9_\-]{1,}                 # Filename
     \.(?:php|asp|aspx|jsp|json|
          action|html|js|txt|xml)        # . + extension
-    (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
-
+    (?:[\?|#][^"|']{0,}|))              # Optional ? or # with parameters
   )
-
-  (?:"|')                               # End newline delimiter
-
+  (?:"|')                               # End delimiter
 """
 
 context_delimiter_str = "\n"
@@ -123,6 +111,7 @@ def parser_input(input_str):
 def send_request(url):
     """
     Send HTTP request using urllib.
+    If an HTTP error occurs, log the error and return None.
     """
     q = Request(url)
     q.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -136,16 +125,27 @@ def send_request(url):
     try:
         sslcontext = ssl.create_default_context()
         response = urlopen(q, timeout=args.timeout, context=sslcontext)
+    except HTTPError as e:
+        print("HTTP Error for %s: %s" % (url, e))
+        return None
+    except URLError as e:
+        print("URL Error for %s: %s" % (url, e))
+        return None
     except Exception as e:
-        parser_error("invalid input defined or SSL error: %s" % e)
+        print("Error fetching %s: %s" % (url, e))
+        return None
 
-    if response.info().get('Content-Encoding') == 'gzip':
-        data = GzipFile(fileobj=readBytesCustom(response.read())).read()
-    elif response.info().get('Content-Encoding') == 'deflate':
-        data = response.read().read()
-    else:
-        data = response.read()
-    return data.decode('utf-8', 'replace')
+    try:
+        if response.info().get('Content-Encoding') == 'gzip':
+            data = GzipFile(fileobj=readBytesCustom(response.read())).read()
+        elif response.info().get('Content-Encoding') == 'deflate':
+            data = response.read().read()
+        else:
+            data = response.read()
+        return data.decode('utf-8', 'replace')
+    except Exception as e:
+        print("Error reading response from %s: %s" % (url, e))
+        return None
 
 def getContext(list_matches, content, include_delimiter=0, context_delimiter_str="\n"):
     """
@@ -219,7 +219,6 @@ def check_url(url):
         if url.startswith("//"):
             url = "https:" + url
         if not url.startswith("http"):
-            # This branch may need a proper base URL; in our usage, we assume absolute URLs.
             url = args.input.rstrip("/") + "/" + url
         return url
     else:
@@ -230,7 +229,6 @@ def extract_js_urls(html_content, base_url):
     Extract JavaScript URLs from HTML content using <script> tags.
     """
     js_urls = []
-    # This regex finds src attributes from script tags.
     pattern = r'<script[^>]+src=["\'](.*?)["\']'
     matches = re.findall(pattern, html_content, re.IGNORECASE)
     for src in matches:
@@ -260,10 +258,8 @@ def process_js_url(js_url):
     Returns a list of found links.
     """
     print("Processing JS file: %s" % js_url)
-    try:
-        file_content = send_request(js_url)
-    except Exception as e:
-        print("Error fetching %s: %s" % (js_url, e))
+    file_content = send_request(js_url)
+    if file_content is None:
         return []
     endpoints = parser_file(file_content, regex_str, mode=1, more_regex=args.regex)
     links = [item["link"] for item in endpoints]
@@ -293,25 +289,21 @@ def main():
         if not url:
             continue
 
-        # Determine if the URL points directly to a JS file.
         valid_js_url = check_url(url)
         js_urls = []
         if valid_js_url:
             js_urls.append(valid_js_url)
         else:
-            # Not a direct JS file, assume it's an HTML page.
             print("Loading HTML page: %s" % url)
-            try:
-                html_content = send_request(url)
-            except Exception as e:
-                print("Error fetching HTML page %s: %s" % (url, e))
+            html_content = send_request(url)
+            if html_content is None:
+                print("Skipping %s due to previous errors." % url)
                 continue
             js_urls = extract_js_urls(html_content, url)
             if not js_urls:
                 print("No JavaScript files found on %s" % url)
                 continue
 
-        # For each JS URL found, process it.
         all_links = []
         for js_url in js_urls:
             links = process_js_url(js_url)
