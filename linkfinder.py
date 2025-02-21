@@ -286,6 +286,7 @@ def check_url(url):
         return False
 
 def main():
+    global args
     # Parse command line
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--domain",
