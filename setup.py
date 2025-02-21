@@ -10,5 +10,10 @@ setup(
     author='Gerben Javado',
     url='https://github.com/GerbenJavado/LinkFinder',
     py_modules=['linkfinder'],
+    entry_points={
+        'console_scripts': [
+            'linkfinder = linkfinder:main',
+        ],
+    },
     install_requires=['jsbeautifier'],
 )

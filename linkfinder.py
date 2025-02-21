@@ -285,23 +285,20 @@ def check_url(url):
     else:
         return False
 
-if __name__ == "__main__":
+def main():
     # Parse command line
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--domain",
                         help="Input a domain to recursively parse all javascript located in a page",
                         action="store_true")
     parser.add_argument("-i", "--input",
-                        help="Input a: URL, file or folder. \
-                        For folders a wildcard can be used (e.g. '/*.js').",
-                        required="True", action="store")
+                        help="Input a: URL, file or folder. For folders a wildcard can be used (e.g. '/*.js').",
+                        required=True, action="store")
     parser.add_argument("-o", "--output",
-                        help="Where to save the file, \
-                        including file name. Default: output.html",
+                        help="Where to save the file, including file name. Default: output.html",
                         action="store", default="output.html")
     parser.add_argument("-r", "--regex",
-                        help="RegEx for filtering purposes \
-                        against found endpoint (e.g. ^/api/)",
+                        help="RegEx for filtering purposes against found endpoint (e.g. ^/api/)",
                         action="store")
     parser.add_argument("-b", "--burp",
                         help="",
@@ -401,3 +398,7 @@ if __name__ == "__main__":
 
     if args.output != 'cli':
         html_save(output)
+
+
+if __name__ == "__main__":
+    main()
