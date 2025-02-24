@@ -20,24 +20,14 @@ import argparse
 import jsbeautifier
 import subprocess
 import base64
-import ssl
 import xml.etree.ElementTree as ET
-from gzip import GzipFile
 from string import Template
 from urllib.parse import urlparse, urljoin
 
-try:
-    from StringIO import StringIO
-    readBytesCustom = StringIO
-except ImportError:
-    from io import BytesIO
-    readBytesCustom = BytesIO
-
-try:
-    from urllib.request import Request, urlopen
-    from urllib.error import HTTPError, URLError
-except ImportError:
-    from urllib2 import Request, urlopen, HTTPError, URLError
+import requests
+# Suppress only the single warning from urllib3 needed.
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # Regex used for extracting endpoints
 regex_str = r"""
@@ -115,62 +105,26 @@ def parser_input(input_str):
 
 def send_request(url):
     """
-    Send HTTP request using urllib.
-    If an HTTP error or SSL error occurs, log the error and try falling back
-    to an unverified SSL context. Returns None on persistent errors.
+    Send HTTP request using the requests library.
+    SSL certificate verification is disabled.
+    Returns the response text or None on errors.
     """
-    q = Request(url)
-    q.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                               'AppleWebKit/537.36 (KHTML, like Gecko) '
-                               'Chrome/58.0.3029.110 Safari/537.36')
-    q.add_header('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8')
-    q.add_header('Accept-Language', 'en-US,en;q=0.8')
-    q.add_header('Accept-Encoding', 'gzip')
-    q.add_header('Cookie', args.cookies)
-
-    # Try using the default verified context.
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/58.0.3029.110 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.8',
+        'Accept-Encoding': 'gzip',
+        'Cookie': args.cookies
+    }
     try:
-        sslcontext = ssl.create_default_context()
-        response = urlopen(q, timeout=args.timeout, context=sslcontext)
-    except ssl.SSLError as e:
-        debug_print("SSL Error for %s: %s. Trying unverified context." % (url, e))
-        try:
-            sslcontext = ssl._create_unverified_context()
-            response = urlopen(q, timeout=args.timeout, context=sslcontext)
-        except Exception as e:
-            debug_print("Error fetching %s with unverified context: %s" % (url, e))
-            return None
-    except HTTPError as e:
-        debug_print("HTTP Error for %s: %s" % (url, e))
-        return None
-    except URLError as e:
-        debug_print("URL Error for %s: %s" % (url, e))
-        return None
-    except Exception as e:
+        # Using verify=False to bypass SSL certificate verification.
+        response = requests.get(url, headers=headers, timeout=args.timeout, verify=False)
+        response.raise_for_status()
+        return response.text
+    except requests.exceptions.RequestException as e:
         debug_print("Error fetching %s: %s" % (url, e))
-        return None
-
-    try:
-        enc = response.info().get('Content-Encoding')
-        if enc == 'gzip':
-            data = GzipFile(fileobj=readBytesCustom(response.read())).read()
-        elif enc == 'deflate':
-            data = response.read().read()
-        else:
-            data = response.read()
-        return data.decode('utf-8', 'replace')
-    except ssl.SSLError as e:
-        debug_print("SSL Error while reading %s: %s" % (url, e))
-        try:
-            sslcontext = ssl._create_unverified_context()
-            response = urlopen(q, timeout=args.timeout, context=sslcontext)
-            data = response.read()
-            return data.decode('utf-8', 'replace')
-        except Exception as e:
-            debug_print("Error reading response from %s with unverified context: %s" % (url, e))
-            return None
-    except Exception as e:
-        debug_print("Error reading response from %s: %s" % (url, e))
         return None
 
 def getContext(list_matches, content, include_delimiter=0, context_delimiter_str="\n"):
