@@ -5,8 +5,8 @@
 #   - If the URL points directly to a .js file, process it.
 #   - Otherwise, load the page, extract all JS URLs, then process each one.
 #
-# Output is stored in a folder "linkfinder_output", where each file is named
-# after the domain (with dots replaced by underscores).
+# Output is stored in a directory specified by -out-dir (default: linkfinder_output),
+# where each file is named after the domain (with dots replaced by underscores).
 #
 # By Gerben_Javado (original)
 # Modified by ChatGPT
@@ -70,9 +70,14 @@ regex_str = r"""
 
 context_delimiter_str = "\n"
 
+def debug_print(message):
+    if args.verbose:
+        print(message)
+
 def parser_error(errmsg):
-    print("Usage: python %s [Options] -h for help" % sys.argv[0])
-    print("Error: %s" % errmsg)
+    if args.verbose:
+        print("Usage: python %s [Options] -h for help" % sys.argv[0])
+        print("Error: %s" % errmsg)
     sys.exit()
 
 def parser_input(input_str):
@@ -123,16 +128,26 @@ def send_request(url):
     q.add_header('Cookie', args.cookies)
 
     try:
+        # First try with default SSL context.
         sslcontext = ssl.create_default_context()
         response = urlopen(q, timeout=args.timeout, context=sslcontext)
+    except ssl.SSLError as e:
+        debug_print("SSL Error for %s: %s. Trying unverified context." % (url, e))
+        try:
+            # Fallback to unverified context.
+            sslcontext = ssl._create_unverified_context()
+            response = urlopen(q, timeout=args.timeout, context=sslcontext)
+        except Exception as e:
+            debug_print("Error fetching %s with unverified context: %s" % (url, e))
+            return None
     except HTTPError as e:
-        print("HTTP Error for %s: %s" % (url, e))
+        debug_print("HTTP Error for %s: %s" % (url, e))
         return None
     except URLError as e:
-        print("URL Error for %s: %s" % (url, e))
+        debug_print("URL Error for %s: %s" % (url, e))
         return None
     except Exception as e:
-        print("Error fetching %s: %s" % (url, e))
+        debug_print("Error fetching %s: %s" % (url, e))
         return None
 
     try:
@@ -144,7 +159,7 @@ def send_request(url):
             data = response.read()
         return data.decode('utf-8', 'replace')
     except Exception as e:
-        print("Error reading response from %s: %s" % (url, e))
+        debug_print("Error reading response from %s: %s" % (url, e))
         return None
 
 def getContext(list_matches, content, include_delimiter=0, context_delimiter_str="\n"):
@@ -239,10 +254,10 @@ def extract_js_urls(html_content, base_url):
 
 def save_links(domain, links):
     """
-    Save found links to a file in the linkfinder_output folder.
+    Save found links to a file in the output directory.
     The file is named after the domain, with dots replaced by underscores.
     """
-    output_folder = "linkfinder_output"
+    output_folder = args.out_dir
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
     domain_filename = domain.replace(".", "_")
@@ -250,14 +265,14 @@ def save_links(domain, links):
     with open(output_file, "a") as f:
         for link in links:
             f.write(link + "\n")
-    print("Saved %d links for domain %s in %s" % (len(links), domain, output_file))
+    debug_print("Saved %d links for domain %s in %s" % (len(links), domain, output_file))
 
 def process_js_url(js_url):
     """
     Process a JavaScript URL: download its content and extract endpoints.
     Returns a list of found links.
     """
-    print("Processing JS file: %s" % js_url)
+    debug_print("Processing JS file: %s" % js_url)
     file_content = send_request(js_url)
     if file_content is None:
         return []
@@ -277,10 +292,14 @@ def main():
     parser.add_argument("-c", "--cookies",
                         help="Add cookies for authenticated JS files",
                         action="store", default="")
-    default_timeout = 10
     parser.add_argument("-t", "--timeout",
-                        help="Seconds to wait for the server to send data (default: " + str(default_timeout) + ")",
-                        default=default_timeout, type=int, metavar="<seconds>")
+                        help="Seconds to wait for the server to send data (default: 10)",
+                        default=10, type=int, metavar="<seconds>")
+    parser.add_argument("-out-dir", "--out-dir",
+                        help="Directory to save output files (default: linkfinder_output)",
+                        default="linkfinder_output", type=str)
+    parser.add_argument("-v", "--verbose",
+                        help="Enable verbose output", action="store_true")
     args = parser.parse_args()
 
     urls = parser_input(args.input)
@@ -294,14 +313,14 @@ def main():
         if valid_js_url:
             js_urls.append(valid_js_url)
         else:
-            print("Loading HTML page: %s" % url)
+            debug_print("Loading HTML page: %s" % url)
             html_content = send_request(url)
             if html_content is None:
-                print("Skipping %s due to previous errors." % url)
+                debug_print("Skipping %s due to previous errors." % url)
                 continue
             js_urls = extract_js_urls(html_content, url)
             if not js_urls:
-                print("No JavaScript files found on %s" % url)
+                debug_print("No JavaScript files found on %s" % url)
                 continue
 
         all_links = []
@@ -314,7 +333,7 @@ def main():
             domain = parsed.netloc if parsed.netloc else "unknown"
             save_links(domain, all_links)
         else:
-            print("No endpoints found for %s" % url)
+            debug_print("No endpoints found for %s" % url)
 
 if __name__ == "__main__":
     main()
