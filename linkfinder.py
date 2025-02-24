@@ -5,7 +5,7 @@
 #   - If the URL points directly to a .js file, process it.
 #   - Otherwise, load the page, extract all JS URLs, then process each one.
 #
-# Output is stored in a directory specified by -out-dir (default: linkfinder_output),
+# Output is stored in a directory specified by --out-dir (default: linkfinder_output),
 # where each file is named after the domain (with dots replaced by underscores).
 #
 # By Gerben_Javado (original)
@@ -116,7 +116,8 @@ def parser_input(input_str):
 def send_request(url):
     """
     Send HTTP request using urllib.
-    If an HTTP error occurs, log the error and return None.
+    If an HTTP error or SSL error occurs, log the error and try falling back
+    to an unverified SSL context. Returns None on persistent errors.
     """
     q = Request(url)
     q.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -127,14 +128,13 @@ def send_request(url):
     q.add_header('Accept-Encoding', 'gzip')
     q.add_header('Cookie', args.cookies)
 
+    # Try using the default verified context.
     try:
-        # First try with default SSL context.
         sslcontext = ssl.create_default_context()
         response = urlopen(q, timeout=args.timeout, context=sslcontext)
     except ssl.SSLError as e:
         debug_print("SSL Error for %s: %s. Trying unverified context." % (url, e))
         try:
-            # Fallback to unverified context.
             sslcontext = ssl._create_unverified_context()
             response = urlopen(q, timeout=args.timeout, context=sslcontext)
         except Exception as e:
@@ -151,13 +151,24 @@ def send_request(url):
         return None
 
     try:
-        if response.info().get('Content-Encoding') == 'gzip':
+        enc = response.info().get('Content-Encoding')
+        if enc == 'gzip':
             data = GzipFile(fileobj=readBytesCustom(response.read())).read()
-        elif response.info().get('Content-Encoding') == 'deflate':
+        elif enc == 'deflate':
             data = response.read().read()
         else:
             data = response.read()
         return data.decode('utf-8', 'replace')
+    except ssl.SSLError as e:
+        debug_print("SSL Error while reading %s: %s" % (url, e))
+        try:
+            sslcontext = ssl._create_unverified_context()
+            response = urlopen(q, timeout=args.timeout, context=sslcontext)
+            data = response.read()
+            return data.decode('utf-8', 'replace')
+        except Exception as e:
+            debug_print("Error reading response from %s with unverified context: %s" % (url, e))
+            return None
     except Exception as e:
         debug_print("Error reading response from %s: %s" % (url, e))
         return None
@@ -259,13 +270,20 @@ def save_links(domain, links):
     """
     output_folder = args.out_dir
     if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+        try:
+            os.makedirs(output_folder)
+        except Exception as e:
+            debug_print("Error creating output directory %s: %s" % (output_folder, e))
+            return
     domain_filename = domain.replace(".", "_")
     output_file = os.path.join(output_folder, domain_filename + ".txt")
-    with open(output_file, "a") as f:
-        for link in links:
-            f.write(link + "\n")
-    debug_print("Saved %d links for domain %s in %s" % (len(links), domain, output_file))
+    try:
+        with open(output_file, "a") as f:
+            for link in links:
+                f.write(link + "\n")
+        debug_print("Saved %d links for domain %s in %s" % (len(links), domain, output_file))
+    except Exception as e:
+        debug_print("Error writing to file %s: %s" % (output_file, e))
 
 def process_js_url(js_url):
     """
@@ -295,7 +313,7 @@ def main():
     parser.add_argument("-t", "--timeout",
                         help="Seconds to wait for the server to send data (default: 10)",
                         default=10, type=int, metavar="<seconds>")
-    parser.add_argument("-out-dir", "--out-dir",
+    parser.add_argument("--out-dir",
                         help="Directory to save output files (default: linkfinder_output)",
                         default="linkfinder_output", type=str)
     parser.add_argument("-v", "--verbose",
