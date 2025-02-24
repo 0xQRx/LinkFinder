@@ -188,16 +188,22 @@ def parser_file(content, regex_str, mode=1, more_regex=None, no_dup=1):
 
 def check_url(url):
     """
-    Check if the URL points directly to a JavaScript file.
+    Check if the URL points directly to a JavaScript file by examining
+    its path component. Returns the URL if valid, or False otherwise.
     """
+    from urllib.parse import urlparse  # ensure it's imported
+    parsed = urlparse(url)
+    path = parsed.path
     nopelist = ["node_modules", "jquery.js"]
-    if url.lower().endswith(".js"):
-        parts = url.split("/")
-        for part in parts:
+    if path.lower().endswith(".js"):
+        # Check that none of the path segments are in the no-list.
+        for part in path.split("/"):
             if part in nopelist:
                 return False
+        # If the URL starts with '//' prepend 'https:'
         if url.startswith("//"):
             url = "https:" + url
+        # If it doesn't start with http, assume it's relative and prepend the base.
         if not url.startswith("http"):
             url = args.input.rstrip("/") + "/" + url
         return url
