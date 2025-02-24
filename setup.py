@@ -15,5 +15,5 @@ setup(
             'linkfinder = linkfinder:main',
         ],
     },
-    install_requires=['jsbeautifier'],
+    install_requires=['jsbeautifier', 'requests'],
 )
