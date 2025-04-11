@@ -49,6 +49,10 @@ Short Form    | Long Form     | Description
 -d            | --domain      | Toggle to use when analyzing an entire domain. Enumerates over all found JS files.
 -b            | --burp        | Toggle to use when inputting a Burp 'Save selected' file containing multiple JS files
 -c            | --cookies     | Add cookies to the request
+              | --out-dir     | Directory to save output files (default: linkfinder_output)
+              | --unknown-domain | Filename to use for files without Original URL pattern (default: unknown_domain)
+-v            | --verbose     | Enable verbose output
+-t            | --timeout     | Seconds to wait for the server to send data (default: 10)
 -h            | --help        | show the help message and exit
 
 ### Examples
@@ -72,6 +76,18 @@ Short Form    | Long Form     | Description
 * Enumerating an entire folder for JavaScript files, while looking for endpoints starting with /api/ and finally saving the results to results.html:
 
 `python linkfinder.py -i 'Desktop/*.js' -r ^/api/ -o results.html`
+
+* Processing a directory of JavaScript files and grouping endpoints by domain based on "// Original URL:" comment at the top of each file:
+
+`python linkfinder.py -i '/path/to/js/files/' --out-dir results_by_domain --unknown-domain unknown_files -v`
+
+Files should have the following format to be properly grouped by domain:
+```javascript
+// Original URL: https://development.x.com/static/module-backstage.ffb244ba.js
+// Rest of the file content...
+```
+
+If a file doesn't contain the "Original URL" comment, its endpoints will be saved to the file specified by `--unknown-domain`.
 
 ## Docker
 
